@@ -20,6 +20,7 @@ class Program
     private static Options options;
     private static Process notepadProcess;
 
+    private static IntPtr notepadChild;
 
     [STAThread]
     static void Main(string[] args)
@@ -86,6 +87,9 @@ class Program
         if (options.Notepad)
         {
             notepadProcess = Process.Start("notepad.exe");
+            notepadProcess.WaitForInputIdle();
+            notepadChild = Win32.FindWindowEx(notepadProcess.MainWindowHandle, new IntPtr(0), "Edit", null);
+
         }
         var app = new Application();
         app.Startup += App_Startup;
@@ -225,7 +229,6 @@ class Program
 
         if (options.Notepad)
         {
-            var notepadChild = Win32.FindWindowEx(notepadProcess.MainWindowHandle, new IntPtr(0), "Edit", null);
             Win32.SendMessage(notepadChild, Win32.WM_SETTEXT, 0, sb.ToString());
         }
         else
