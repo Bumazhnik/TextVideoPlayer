@@ -5,10 +5,8 @@ using System.Windows.Media.Imaging;
 using System.IO;
 using System.Text;
 using System.CommandLine;
+
 namespace TextVideoPlayer;
-
-
-
 class Program
 {
     private static MediaPlayer mediaPlayer;
@@ -23,127 +21,174 @@ class Program
 
     private static Application app;
 
+    private static bool isClosed;
+    private static bool isPlaying;
+
     [STAThread]
     static void Main(string[] args)
     {
-
         var rootCommand = new RootCommand();
-        var notepadOption = new Option<bool>(
-            ["--notepad", "-n"],
-            () => false,
-            "Use notepad as output");
-        var coloredOption = new Option<bool>(
-            ["--colored", "-c"],
-            () => true,
-            "Colored");
-        var fullColoredOption = new Option<bool>(
-            ["--full-colored", "-f"],
-            () => false,
-            "Full colored");
-
-        var widthOption = new Option<int>(
-            ["--width", "-w"],
-            () => 100,
-            "Width (characters)");
-        var videoFileOption =  new Option<string>(
-            ["--video-file", "-v"],
-            () => "video.mp4",
-            "Video file");
-        
-        var invertGrayscaleOption = new Option<bool>(
-            ["--invert-grayscale", "-i"],
-            () => false,
-            "Invert grayscale");
-
-        var grayscaleCharsOption = new Option<string>(
-            ["--grayscale-chars", "-g"],
-            () => " .:-=+*#%@",
-            "Grayscale characters"
-        );
-        rootCommand.AddOption(notepadOption);
-        rootCommand.AddOption(coloredOption);
-        rootCommand.AddOption(fullColoredOption);
-        rootCommand.AddOption(widthOption);
-        rootCommand.AddOption(videoFileOption);
-        rootCommand.AddOption(invertGrayscaleOption);
-        rootCommand.AddOption(grayscaleCharsOption);
-        rootCommand.SetHandler((n,c,f,w,v,i,g) =>
-        {
-            options = new()
-            {
-
-                Notepad = n,
-                Colored = c || f,
-                FullColored = f,
-                Width = w,
-                VideoPath = v,
-                InvertGrayscale = i,
-                GrayscaleChars = g
-            };
-            Start();
-
-        },notepadOption,coloredOption,fullColoredOption,widthOption,videoFileOption,invertGrayscaleOption,grayscaleCharsOption);
+        var optionsBinder = new OptionsBinder();
+        optionsBinder.CopyOptionsToCommand(rootCommand);
+        rootCommand.SetHandler(Start,optionsBinder);
         rootCommand.Invoke(args);
-
     }
 
-    private static void Start()
+    private static void Start(Options o)
     {
+        options = o;
         ResetColor();
         Console.Clear();
-        var handle = Win32.GetStdHandle( -11 );
-        Win32.GetConsoleMode( handle, out var mode );
-        Win32.SetConsoleMode( handle, mode | 0x4 );
+        SetColoredMode();
         if (options.Notepad)
         {
             notepadProcess = Process.Start("notepad.exe");
             notepadProcess.WaitForInputIdle();
             notepadChild = Win32.FindWindowEx(notepadProcess.MainWindowHandle, new IntPtr(0), "Edit", null);
-
         }
-
-        Console.CancelKeyPress += (s, e) => CloseApplication();
         
         app = new Application();
         app.Startup += App_Startup;
         app.Exit += App_Exit;
+        var controlThread = new Thread(Controls);
+        controlThread.Start();
+        Console.CancelKeyPress += (sender, args) =>
+        {
+            args.Cancel = true;
+            ShutdownApp();
+        };
         app.Run();
-    }
-    private static void App_Exit(object sender, ExitEventArgs e)
-    {
-        CloseApplication();
+
     }
 
-    private static void CloseApplication()
-    {
-        ResetColor();
-        Console.WriteLine("Application closed");
-    }
-    private static void ResetColor()
-    {
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.BackgroundColor = ConsoleColor.Black;
-    }
 
+
+    #region Application related
     private static void App_Startup(object sender, StartupEventArgs e)
     {
         mediaPlayer = new MediaPlayer();
         mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
         mediaPlayer.MediaFailed += MediaPlayer_MediaFailed;
         mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
+        mediaPlayer.ScrubbingEnabled = true;
+
 
         // Ensure the path is correct
         if (!File.Exists(options.VideoPath))
         {
             Console.WriteLine("Video file not found.");
-            app.Shutdown();
+            ShutdownApp();
             return;
         }
 
         mediaPlayer.Open(new Uri(options.VideoPath, UriKind.RelativeOrAbsolute));
     }
+    private static void ShutdownApp()
+    {
+        app.Dispatcher.BeginInvoke(() =>
+        {
+            app.Shutdown();
+        });
+    }
+    private static void App_Exit(object sender, ExitEventArgs e)
+    {
+        OnCloseApplication();
+    }
+    private static void OnCloseApplication()
+    {
+        isClosed = true;
+        app.Dispatcher.BeginInvoke(()=>mediaPlayer.Close());
+        ResetColor();
+        Console.WriteLine("Application closed");
+    }
+    #endregion
+    
+    #region Controls
 
+    private static void Controls()
+    {
+        while (true)
+        {
+            var key = ReadKey();
+            if(isClosed)
+                return;
+            switch (key.Key)
+            {
+                case ConsoleKey.Q:
+                    ShutdownApp();
+                    return;
+                case ConsoleKey.LeftArrow:
+                    AddTime(TimeSpan.FromSeconds(-5));
+                    break;
+                case ConsoleKey.RightArrow:
+                    AddTime(TimeSpan.FromSeconds(5));
+                    break;
+                case ConsoleKey.Spacebar:
+                    PlayPauseControl();
+                    break;
+            }
+        }
+    }
 
+    private static void PlayPauseControl()
+    {
+        app.Dispatcher.BeginInvoke(() =>
+        {
+            if(isPlaying)Pause();
+            else Play();
+        });
+    }
+
+    private static void Play()
+    {
+        mediaPlayer.Play();
+        isPlaying = true;
+    }
+
+    private static void Pause()
+    {
+        mediaPlayer.Pause();
+        isPlaying = false;
+    }
+    private static void AddTime(TimeSpan time)
+    {
+        app.Dispatcher.BeginInvoke(async () =>
+        {
+            mediaPlayer.Position += time;
+            await Task.Delay(100);
+            RenderFrame();
+        });
+    }
+
+    #endregion
+    
+    #region Console related
+        private static void SetColoredMode()
+        {
+            var handle = Win32.GetStdHandle( -11 );
+            Win32.GetConsoleMode( handle, out var mode );
+            Win32.SetConsoleMode( handle, mode | 0x4 );
+        }
+        private static ConsoleKeyInfo ReadKey()
+        {
+            while (true)
+            {
+                if (Console.KeyAvailable)
+                    return Console.ReadKey(true);
+                Thread.Sleep(50);
+                if (isClosed)
+                    return new ConsoleKeyInfo();
+            }
+        }
+        private static void ResetColor()
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.BackgroundColor = ConsoleColor.Black;
+        }
+
+    #endregion
+    
+    #region MediaPlayer events
 
     private static void MediaPlayer_MediaOpened(object? sender, EventArgs e)
     {
@@ -153,7 +198,7 @@ class Program
         if (videoWidth == 0 || videoHeight == 0)
         {
             Console.WriteLine("Could not get video dimensions.");
-            app.Shutdown();
+            ShutdownApp();
             return;
         }
 
@@ -165,19 +210,23 @@ class Program
         renderTarget = new RenderTargetBitmap(width,height, 96, 96, PixelFormats.Pbgra32);
 
         // Start playback and hook into the rendering event
-        mediaPlayer.Play();
+        Play();
         CompositionTarget.Rendering += OnRendering;
     }
     private static void MediaPlayer_MediaEnded(object? sender, EventArgs e)
     {
-        app.Shutdown();
+        ShutdownApp();
     }
     private static void MediaPlayer_MediaFailed(object? sender, ExceptionEventArgs e)
     {
         Console.WriteLine("Media failed to load: " + e.ErrorException.Message);
-        app.Shutdown();
+        ShutdownApp();
     }
-    private static void OnRendering(object? sender, EventArgs g)
+
+    #endregion
+    
+    #region Rendering
+    private static void RenderFrame()
     {
         using (var drawingContext = drawingVisual.RenderOpen())
         {
@@ -188,9 +237,13 @@ class Program
         
         ProcessFrame();
     }
-
-
-
+    private static void OnRendering(object? sender, EventArgs g)
+    {
+        if(!isPlaying)
+            return;
+        RenderFrame();
+    }
+    private static int AdjustAccuracy(int value) => value / options.ColorAccuracy * options.ColorAccuracy;
     static void ProcessFrame()
     {
         int width = renderTarget.PixelWidth;
@@ -216,9 +269,9 @@ class Program
                 int red = pixels[index + 2];
                 if(options.Colored && !options.Notepad)
                 {
-                    int cR = red / 4 * 4;
-                    int cB = blue / 4 * 4;
-                    int cG = green / 4 * 4;
+                    int cR = AdjustAccuracy(red);
+                    int cB = AdjustAccuracy(blue);
+                    int cG = AdjustAccuracy(green);
                     if (prevR != cR || prevB != cB || prevG != cG)
                     {
                         prevR = cR;
@@ -263,6 +316,15 @@ class Program
             Console.Write(sb);
         }
         sb.Clear();
+        if (options.Timeline)
+        {
+            ResetColor();
+            Console.Write($"{mediaPlayer.Position} : {mediaPlayer.NaturalDuration}");
+        }
     }
+
+    
+
+    #endregion
 }
 

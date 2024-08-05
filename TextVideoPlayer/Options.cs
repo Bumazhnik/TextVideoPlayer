@@ -7,6 +7,8 @@ public class Options
     public bool FullColored { get; set; }
     public bool Notepad { get; set; }
     public bool InvertGrayscale { get; set; }
+    public bool Timeline { get; set; }
     public int Width { get; set; }
     public string GrayscaleChars { get; set; } = "";
+    public int ColorAccuracy { get; set; }
 }
