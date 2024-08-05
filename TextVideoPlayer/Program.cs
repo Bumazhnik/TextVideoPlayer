@@ -72,15 +72,6 @@ class Program
         mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
         mediaPlayer.ScrubbingEnabled = true;
 
-
-        // Ensure the path is correct
-        if (!File.Exists(options.VideoPath))
-        {
-            Console.WriteLine("Video file not found.");
-            ShutdownApp();
-            return;
-        }
-
         mediaPlayer.Open(new Uri(options.VideoPath, UriKind.RelativeOrAbsolute));
     }
     private static void ShutdownApp()
