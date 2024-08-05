@@ -15,12 +15,13 @@ class Program
     private static RenderTargetBitmap renderTarget;
     private static DrawingVisual drawingVisual;
     private static StringBuilder sb;
-
-    private const string ASCII = " .:-=+*#%@";
+    
     private static Options options;
     private static Process notepadProcess;
 
     private static IntPtr notepadChild;
+
+    private static Application app;
 
     [STAThread]
     static void Main(string[] args)
@@ -41,25 +42,32 @@ class Program
             "Full colored");
 
         var widthOption = new Option<int>(
-            new[] { "--width", "-w" },
+            ["--width", "-w"],
             () => 100,
             "Width (characters)");
         var videoFileOption =  new Option<string>(
-            new[] { "--video-file", "-v" },
+            ["--video-file", "-v"],
             () => "video.mp4",
             "Video file");
         
-        var invertColorsOption = new Option<bool>(
+        var invertGrayscaleOption = new Option<bool>(
             ["--invert-grayscale", "-i"],
             () => false,
             "Invert grayscale");
+
+        var grayscaleCharsOption = new Option<string>(
+            ["--grayscale-chars", "-g"],
+            () => " .:-=+*#%@",
+            "Grayscale characters"
+        );
         rootCommand.AddOption(notepadOption);
         rootCommand.AddOption(coloredOption);
         rootCommand.AddOption(fullColoredOption);
         rootCommand.AddOption(widthOption);
         rootCommand.AddOption(videoFileOption);
-        rootCommand.AddOption(invertColorsOption);
-        rootCommand.SetHandler((n,c,f,w,v,i) =>
+        rootCommand.AddOption(invertGrayscaleOption);
+        rootCommand.AddOption(grayscaleCharsOption);
+        rootCommand.SetHandler((n,c,f,w,v,i,g) =>
         {
             options = new()
             {
@@ -69,17 +77,19 @@ class Program
                 FullColored = f,
                 Width = w,
                 VideoPath = v,
-                InvertGrayscale = i
+                InvertGrayscale = i,
+                GrayscaleChars = g
             };
             Start();
 
-        },notepadOption,coloredOption,fullColoredOption,widthOption,videoFileOption,invertColorsOption);
+        },notepadOption,coloredOption,fullColoredOption,widthOption,videoFileOption,invertGrayscaleOption,grayscaleCharsOption);
         rootCommand.Invoke(args);
 
     }
 
     private static void Start()
     {
+        ResetColor();
         Console.Clear();
         var handle = Win32.GetStdHandle( -11 );
         Win32.GetConsoleMode( handle, out var mode );
@@ -91,14 +101,28 @@ class Program
             notepadChild = Win32.FindWindowEx(notepadProcess.MainWindowHandle, new IntPtr(0), "Edit", null);
 
         }
-        var app = new Application();
+
+        Console.CancelKeyPress += (s, e) => CloseApplication();
+        
+        app = new Application();
         app.Startup += App_Startup;
         app.Exit += App_Exit;
         app.Run();
     }
     private static void App_Exit(object sender, ExitEventArgs e)
     {
-        Console.Clear();
+        CloseApplication();
+    }
+
+    private static void CloseApplication()
+    {
+        ResetColor();
+        Console.WriteLine("Application closed");
+    }
+    private static void ResetColor()
+    {
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.BackgroundColor = ConsoleColor.Black;
     }
 
     private static void App_Startup(object sender, StartupEventArgs e)
@@ -112,6 +136,7 @@ class Program
         if (!File.Exists(options.VideoPath))
         {
             Console.WriteLine("Video file not found.");
+            app.Shutdown();
             return;
         }
 
@@ -128,6 +153,7 @@ class Program
         if (videoWidth == 0 || videoHeight == 0)
         {
             Console.WriteLine("Could not get video dimensions.");
+            app.Shutdown();
             return;
         }
 
@@ -144,11 +170,12 @@ class Program
     }
     private static void MediaPlayer_MediaEnded(object? sender, EventArgs e)
     {
-        Application.Current.Shutdown();
+        app.Shutdown();
     }
     private static void MediaPlayer_MediaFailed(object? sender, ExceptionEventArgs e)
     {
         Console.WriteLine("Media failed to load: " + e.ErrorException.Message);
+        app.Shutdown();
     }
     private static void OnRendering(object? sender, EventArgs g)
     {
@@ -217,10 +244,10 @@ class Program
                 else
                 {
                     double avg = (double)(red + green + blue) / 3;
-                    int asciiIndex = (int)(avg / 255 * (ASCII.Length-1));
+                    int charIndex = (int)(avg / 255 * (options.GrayscaleChars.Length-1));
                     if (options.InvertGrayscale)
-                        asciiIndex = ASCII.Length - 1 - asciiIndex;
-                    sb.Append(ASCII[asciiIndex]);
+                        charIndex = options.GrayscaleChars.Length - 1 - charIndex;
+                    sb.Append(options.GrayscaleChars[charIndex]);
                 }
 
             }

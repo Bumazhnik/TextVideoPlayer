@@ -8,4 +8,5 @@ public class Options
     public bool Notepad { get; set; }
     public bool InvertGrayscale { get; set; }
     public int Width { get; set; }
+    public string GrayscaleChars { get; set; } = "";
 }
