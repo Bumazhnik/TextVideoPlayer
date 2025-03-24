@@ -24,11 +24,75 @@ class Program
     private static bool isClosed;
     private static bool isPlaying;
 
+    private static readonly OptionAdapter<Options, bool>[] boolOptions =
+    [
+        new(
+                ["--notepad", "-n"],
+                () => false,
+                (o,v)=> o.Notepad=v,
+                "Use notepad as output"),
+            new(
+                ["--colored", "-c"],
+                () => true,
+                (o,v)=> o.Colored=v,
+                "Colored"),
+            new(
+                ["--full-colored", "-f"],
+                () => false,
+                (o,v)=> o.FullColored=v,
+                "Full colored"),
+            new(
+                ["--invert-grayscale", "-i"],
+                () => false,
+                (o,v)=> o.InvertGrayscale=v,
+                "Invert grayscale"),
+
+            new(
+                ["--timeline", "-t"],
+                () => false,
+                (o,v)=> o.Timeline=v,
+                "Timeline at the bottom")
+    ];
+
+    private static readonly OptionAdapter<Options, string>[] stringOptions =
+    [
+        new(
+            ["--video-file",
+            "-v"],
+            () => "video.mp4",
+            (o,v)=> o.VideoPath=v,
+            "Video file"),
+            new(
+            ["--grayscale-chars",
+            "-g"],
+            () => " .:-=+*#%@",
+            (o,v)=> o.GrayscaleChars=v,
+            "Grayscale characters"
+            ),
+        ];
+    private static readonly OptionAdapter<Options, int>[] intOptions =
+    [
+        new(
+                ["--accuracy",
+                    "-a"],
+                () => 4,
+                (o,v)=> o.ColorAccuracy=Math.Max(1,Math.Min(255,v)),
+                "Color accuracy (1~255), where 1 is the most accurate. More accurate = less performant"),
+            new(
+                ["--width",
+                    "-w"],
+                () => 100,
+                (o,v)=> o.Width=v,
+                "Width (characters)"),
+        ];
+
     [STAThread]
     static void Main(string[] args)
     {
         var rootCommand = new RootCommand();
-        var optionsBinder = new OptionsBinder();
+        var optionsBinder = new OptionsBinder<Options>([
+            ..stringOptions,..intOptions,..boolOptions
+            ]);
         optionsBinder.CopyOptionsToCommand(rootCommand);
         rootCommand.SetHandler(Start,optionsBinder);
         rootCommand.Invoke(args);

@@ -1,17 +1,37 @@
 ﻿using System.CommandLine;
+using System.CommandLine.Binding;
 
 namespace TextVideoPlayer;
 
-public class OptionAdapter<T> : Option<T>
+// Base interface to allow unified storage
+public interface OptionAdapterBase<KOptions>
 {
-    private readonly Action<Options, T> _applyAction;
-    public OptionAdapter(string[] aliases, Func<T> getDefaultValue, Action<Options,T> applyAction, string? description = null) : base(aliases, getDefaultValue, description)
+    void AddToCommand(Command command);
+    void ApplyToOptions(KOptions options, BindingContext bindingContext);
+}
+
+// Generic class that extends the base interface
+public class OptionAdapter<KOptions, T> : Option<T>, OptionAdapterBase<KOptions>
+{
+    private readonly Action<KOptions, T> _applyAction;
+
+    public OptionAdapter(string[] aliases, Func<T> getDefaultValue, Action<KOptions, T> applyAction, string? description = null)
+        : base(aliases, getDefaultValue, description)
     {
-        this._applyAction = applyAction;
+        _applyAction = applyAction;
     }
 
-    public void Apply(Options options, T value)
+    public void AddToCommand(Command command)
     {
-        _applyAction(options, value);
+        command.AddOption(this);
+    }
+
+    public void ApplyToOptions(KOptions options, BindingContext bindingContext)
+    {
+        T? parsedValue = bindingContext.ParseResult.GetValueForOption(this);
+        if (parsedValue is not null)
+        {
+            _applyAction(options, parsedValue);
+        }
     }
 }
